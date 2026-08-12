@@ -86,14 +86,6 @@ end
 #-------------------------------------------------------------------------------------------
 
 """
-    scalartype(A)
-
-Obtain the scalar type of a tensor-like object `A`. The default implementation returns
-`eltype(A)`; tensor types with a different notion of scalar type can override this method.
-"""
-scalartype(A) = eltype(A)
-
-"""
     promote_hadamard(TA, TB, Tα)
 
 Obtain the scalar type of the result of a Hadamard product of tensors with scalar types

@@ -17,6 +17,7 @@ export IndexTuple, Index2Tuple, linearize
 # Dependencies
 #-------------
 using Strided: StridedView, sreshape
+using VectorInterface: scalartype
 
 # Interface and index types
 #---------------------------

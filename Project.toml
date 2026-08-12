@@ -5,6 +5,7 @@ version = "0.1.0"
 
 [deps]
 Strided = "5e0ebb24-38b0-5f93-81fe-25c709ecae67"
+VectorInterface = "409d34a3-91d5-4945-b6ec-7529ddf182d8"
 
 [compat]
 julia = "1.10"
