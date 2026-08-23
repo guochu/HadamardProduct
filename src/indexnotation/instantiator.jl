@@ -85,9 +85,12 @@ end
 # `α * (T1 ⊙ T2) ⊙ ...` following the structure of the product tree `tree` (parentheses are
 # preserved as intermediate results) into `dst`, accumulating with `β`. If `alloc_dst` is
 # true, `dst` is allocated before the final step. Intermediate results are allocated with
-# the promoted scalar type `TC` (or one computed from the term if `TC === nothing`).
+# the promoted scalar type `TC` (or one computed from the term if `TC === nothing`). If the
+# left hand side groups its indices with a semicolon, `pC` is the `Index2Tuple` of the
+# positions of the left (domain) and right (codomain) indices of `dst`, and is forwarded to
+# `tensoralloc_hadamard`.
 function instantiate_hadamard(
-        out::Expr, dst, β, α, tree, lhs_indices, alloc_dst::Bool, TC = nothing
+        out::Expr, dst, β, α, tree, lhs_indices, alloc_dst::Bool, TC = nothing, pC = nothing
     )
     if TC === nothing && (alloc_dst || !isleafpair(tree))
         TCsym = gensym("TC")
@@ -100,7 +103,11 @@ function instantiate_hadamard(
     r_expr, r_indices, r_conj = instantiate_subtree(out, tree.right, TCsym)
     pA, pB, pAB = hadamard_indices(l_indices, r_indices, lhs_indices)
     if alloc_dst
-        push!(out.args, :($dst = tensoralloc_hadamard($TCsym, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB)))
+        if pC === nothing
+            push!(out.args, :($dst = tensoralloc_hadamard($TCsym, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB)))
+        else
+            push!(out.args, :($dst = tensoralloc_hadamard($TCsym, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB, $pC)))
+        end
     end
     push!(out.args, :(hadamardproduct!($dst, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB, $α, $β)))
     return nothing
@@ -130,13 +137,18 @@ function parse_hadamard(ex)
     lhs = ex.args[1]
     rhs = ex.args[2]
 
-    isexpr(lhs, :ref) ||
-        throw(ArgumentError("left hand side should be a tensor like `C[i,j,k]`, got: $lhs"))
-    dst = lhs.args[1]
-    lhs_indices = collect(lhs.args[2:end])
+    dst, lhs_left, lhs_right = decompose_tensorterm(lhs)
+    lhs_indices = vcat(lhs_left, lhs_right)
     _checklabels(lhs_indices)
     allunique(lhs_indices) ||
         throw(IndexError("left hand side indices should be unique: $lhs"))
+    # group the output indices into the left (domain) and right (codomain) part, if the
+    # left hand side uses a semicolon; forwarded to `tensoralloc_hadamard` for tensor types
+    # that distinguish the two groups
+    pC = isempty(lhs_right) ? nothing : (
+        Tuple(_findpos(l, lhs_indices) for l in lhs_left),
+        Tuple(_findpos(l, lhs_indices) for l in lhs_right),
+    )
 
     terms = sum_terms(rhs)
     isempty(terms) && throw(ArgumentError("empty right hand side: $rhs"))
@@ -157,14 +169,14 @@ function parse_hadamard(ex)
         push!(out.args, Expr(:(=), TCsym, TC))
         # allocate the output using the first term, then accumulate all terms
         for (k, (αs, tensors)) in enumerate(bound)
-            instantiate_hadamard(out, dst, k == 1 ? 0 : 1, αs, tensors, lhs_indices, k == 1, TCsym)
+            instantiate_hadamard(out, dst, k == 1 ? 0 : 1, αs, tensors, lhs_indices, k == 1, TCsym, pC)
         end
     else
         β0 = mode == :assignment ? 0 : 1
         for (k, (sign, term)) in enumerate(terms)
             α, tensors = decompose_term(term)
             αs = bindscalar(out, applysign(α, sign))
-            instantiate_hadamard(out, dst, k == 1 ? β0 : 1, αs, tensors, lhs_indices, false)
+            instantiate_hadamard(out, dst, k == 1 ? β0 : 1, αs, tensors, lhs_indices, false, nothing, pC)
         end
     end
     return addhadamardfunctions(out)

@@ -5,17 +5,22 @@
 using Base.Meta: isexpr
 
 # is this expression a tensor term `A[i,j]` (or `conj(A[i,j])`)?
-istensorterm(ex) = isexpr(ex, :ref) ||
-    (isexpr(ex, :call) && ex.args[1] == :conj && length(ex.args) == 2 && isexpr(ex.args[2], :ref))
+istensorterm(ex) = isexpr(ex, [:ref, :typed_vcat]) ||
+    (isexpr(ex, :call) && ex.args[1] == :conj && length(ex.args) == 2 && istensorterm(ex.args[2]))
 
 """
     TensorTerm
 
-A parsed tensor term `A[i1,...,in]` or `conj(A[i1,...,in])`.
+A parsed tensor term `A[i1,...,in]` or `conj(A[i1,...,in])`. The indices may be separated
+by a semicolon into a left (domain) group `left` and a right (codomain) group `right`,
+which is useful for tensor types that distinguish between the two; for regular arrays the
+semicolon has no effect and `indices == vcat(left, right)` is the full index sequence.
 """
 struct TensorTerm
     object::Any # the tensor object expression (e.g. `A`)
-    indices::Vector{Any} # the index labels
+    indices::Vector{Any} # all index labels, in order (left followed by right)
+    left::Vector{Any} # the index labels before a semicolon (domain)
+    right::Vector{Any} # the index labels after a semicolon (codomain)
     conj::Bool # whether the tensor is conjugated
 end
 
@@ -27,18 +32,37 @@ function _checklabels(labels)
     return nothing
 end
 
+# decompose a tensor expression `A[i,j]`, `A[i j]`, `A[i,j;k]`, `A[i;j]`, `A[();j k]` or
+# `A[(); (j,k)]` into the tensor object and the left (domain) and right (codomain) index
+# groups; a missing semicolon results in an empty right group
+function decompose_tensorterm(ex)
+    if isexpr(ex, [:ref, :typed_hcat])
+        if length(ex.args) == 1
+            return ex.args[1], Any[], Any[]
+        elseif isexpr(ex.args[2], :parameters)
+            return ex.args[1], collect(ex.args[3:end]), collect(ex.args[2].args)
+        else
+            return ex.args[1], collect(ex.args[2:end]), Any[]
+        end
+    elseif isexpr(ex, :typed_vcat)
+        left = isexpr(ex.args[2], [:row, :tuple]) ? collect(ex.args[2].args) : Any[ex.args[2]]
+        right = isexpr(ex.args[3], [:row, :tuple]) ? collect(ex.args[3].args) : Any[ex.args[3]]
+        return ex.args[1], left, right
+    end
+    throw(ArgumentError("not a valid tensor term: $ex"))
+end
+
 function parse_tensorterm(ex)
-    if isexpr(ex, :ref)
-        length(ex.args) >= 1 ||
-            throw(ArgumentError("invalid tensor term: $ex"))
-        indices = collect(ex.args[2:end])
+    if istensorterm(ex) && !(isexpr(ex, :call))
+        object, left, right = decompose_tensorterm(ex)
+        indices = vcat(left, right)
         _checklabels(indices)
         allunique(indices) ||
             throw(IndexError("indices of a tensor should be unique: $ex"))
-        return TensorTerm(ex.args[1], indices, false)
+        return TensorTerm(object, indices, left, right, false)
     elseif isexpr(ex, :call) && ex.args[1] == :conj && length(ex.args) == 2
         t = parse_tensorterm(ex.args[2])
-        return TensorTerm(t.object, t.indices, !t.conj)
+        return TensorTerm(t.object, t.indices, t.left, t.right, !t.conj)
     else
         throw(ArgumentError("expected a tensor term like `A[i,j]` or `conj(A[i,j])`, got: $ex"))
     end

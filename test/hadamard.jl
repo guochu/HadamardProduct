@@ -209,6 +209,56 @@ end
     @test M3 ≈ 2 * ref
 end
 
+@testset "semicolon index grouping" begin
+    A, B = rand(2, 3), rand(3, 4)
+    ref = reshape(A, 2, 3, 1) .* reshape(B, 1, 3, 4)
+
+    # semicolons on the right hand side are accepted (as in TensorOperations) and
+    # equivalent to commas for regular arrays
+    @hadamard C1[i, j, k] := A[i; j] * B[j; k]
+    @test C1 ≈ ref
+    @hadamard C2[i, j, k] := A[i; j] * B[j; k]
+    @test C2 ≈ ref
+
+    # semicolon on the left hand side groups the output indices into a domain and a
+    # codomain part; the index order (and hence the result) is unchanged
+    @hadamard C3[i; j k] := A[i, j] * B[j, k]
+    @test C3 ≈ ref
+    @hadamard C4[i, j; k] := A[i, j] * B[j, k]
+    @test C4 ≈ ref
+
+    # semicolons on both sides
+    @hadamard C5[i; j k] := A[i; j] * B[j; k]
+    @test C5 ≈ ref
+
+    # empty domain / empty codomain on the left hand side
+    @hadamard C6[(); i j k] := A[i, j] * B[j, k]
+    @test C6 ≈ ref
+    @hadamard C7[i, j, k;] := A[i, j] * B[j, k]
+    @test C7 ≈ ref
+
+    # multi-index groups using spaces, and tuple syntax for the empty domain
+    A3, B3 = rand(2, 3, 4), rand(4, 5)
+    ref3 = reshape(A3, 2, 3, 4, 1) .* reshape(B3, 1, 1, 4, 5)
+    @hadamard C8[i; j k l] := A3[i; j k] * B3[k; l]
+    @test C8 ≈ ref3
+    @hadamard C9[(); (i, j, k, l)] := A3[i, j, k] * B3[k, l]
+    @test C9 ≈ ref3
+
+    # semicolon grouping composes with parentheses
+    E = rand(4, 5)
+    ref4 = reshape(A, 2, 3, 1, 1) .* reshape(B, 1, 3, 4, 1) .* reshape(E, 1, 1, 4, 5)
+    @hadamard C10[i; j k l] := A[i; j] * (B[j; k] * E[k; l])
+    @test C10 ≈ ref4
+
+    # assignment and accumulation with a semicolon on the left hand side
+    C11 = zeros(2, 3, 4)
+    @hadamard C11[i; j k] = A[i, j] * B[j, k]
+    @test C11 ≈ ref
+    @hadamard C11[i; j k] += A[i, j] * B[j, k]
+    @test C11 ≈ 2 * ref
+end
+
 @testset "errors" begin
     # non-matching shared dimensions (runtime dimension check)
     A, B = rand(2, 3), rand(4, 4)

@@ -110,6 +110,13 @@ Obtain the type information of `C`, where `C` would be the output of
 """
 function hadamardproduct_type end
 
+# default implementations ignoring the optional index grouping `pC` (used by
+# `tensoralloc_hadamard` when the left hand side of `@hadamard` uses a semicolon)
+hadamardproduct_structure(A, pA::Index2Tuple, conjA::Bool, B, pB::Index2Tuple, conjB::Bool, pAB::Index2Tuple, pC::Index2Tuple) =
+    hadamardproduct_structure(A, pA, conjA, B, pB, conjB, pAB)
+hadamardproduct_type(TC, A, pA::Index2Tuple, conjA::Bool, B, pB::Index2Tuple, conjB::Bool, pAB::Index2Tuple, pC::Index2Tuple) =
+    hadamardproduct_type(TC, A, pA, conjA, B, pB, conjB, pAB)
+
 """
     tensoralloc(ttype, structure)
 
@@ -125,11 +132,19 @@ Provide a hint that the allocated memory of `C` can be released.
 tensorfree!(C) = nothing
 
 """
-    tensoralloc_hadamard(TC, A, pA, conjA, B, pB, conjB, pAB)
+    tensoralloc_hadamard(TC, A, pA, conjA, B, pB, conjB, pAB[, pC])
 
 Allocate a tensor `C` of scalar type `TC` that would be the result of
-`hadamardproduct!(C, A, pA, conjA, B, pB, conjB, pAB)`.
+`hadamardproduct!(C, A, pA, conjA, B, pB, conjB, pAB)`. The optional argument `pC` is an
+`Index2Tuple` grouping the indices of `C` into a left (domain) and a right (codomain)
+part, as specified by a semicolon on the left hand side of `@hadamard`; it can be used by
+tensor types that distinguish the two groups and is ignored for plain `AbstractArray`s.
 """
+function tensoralloc_hadamard(TC, A, pA::Index2Tuple, conjA::Bool, B, pB::Index2Tuple, conjB::Bool, pAB::Index2Tuple, pC::Index2Tuple)
+    ttype = hadamardproduct_type(TC, A, pA, conjA, B, pB, conjB, pAB, pC)
+    structure = hadamardproduct_structure(A, pA, conjA, B, pB, conjB, pAB, pC)
+    return tensoralloc(ttype, structure)
+end
 function tensoralloc_hadamard(TC, A, pA::Index2Tuple, conjA::Bool, B, pB::Index2Tuple, conjB::Bool, pAB::Index2Tuple)
     ttype = hadamardproduct_type(TC, A, pA, conjA, B, pB, conjB, pAB)
     structure = hadamardproduct_structure(A, pA, conjA, B, pB, conjB, pAB)
