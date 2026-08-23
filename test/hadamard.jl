@@ -138,6 +138,77 @@ end
     @test C ≈ conj.(A) .* reshape(B, 1, 3, 4) .+ 0 .* reshape(A, 2, 3, 1)
 end
 
+@testset "multiple tensor chains" begin
+    # chain of three tensors: (A ⊙ B) ⊙ C, left-associative
+    A, B, C = rand(2, 3), rand(3, 4), rand(4, 5)
+    @hadamard D[i, j, k, l] := A[i, j] * B[j, k] * C[k, l]
+    ref = reshape(A, 2, 3, 1, 1) .* reshape(B, 1, 3, 4, 1) .* reshape(C, 1, 1, 4, 5)
+    @test D ≈ ref
+
+    # output index permutation
+    @hadamard D2[k, l, i, j] := A[i, j] * B[j, k] * C[k, l]
+    @test D2 ≈ permutedims(ref, (3, 4, 1, 2))
+
+    # assignment and accumulation
+    D3 = zeros(2, 3, 4, 5)
+    @hadamard D3[i, j, k, l] = A[i, j] * B[j, k] * C[k, l]
+    @test D3 ≈ ref
+    @hadamard D3[i, j, k, l] += A[i, j] * B[j, k] * C[k, l]
+    @test D3 ≈ 2 * ref
+
+    # chain of four tensors
+    E = rand(5, 2)
+    @hadamard F[i, j, k, l, m] := A[i, j] * B[j, k] * C[k, l] * E[l, m]
+    @test F ≈ ref .* reshape(E, 1, 1, 1, 5, 2)
+
+    # scalar factor and conj in a chain
+    Ac = rand(ComplexF64, 2, 3)
+    @hadamard G[i, j, k, l] := 2 * conj(Ac[i, j]) * B[j, k] * C[k, l]
+    @test G ≈ 2 .* conj.(Ac) .* reshape(B, 1, 3, 4, 1) .* reshape(C, 1, 1, 4, 5)
+
+    # some indices shared only between non-adjacent tensors
+    E2 = rand(4, 2)
+    @hadamard H[i, j, k, m] := A[i, j] * B[j, k] * E2[k, m]
+    @test H ≈ reshape(A, 2, 3, 1, 1) .* reshape(B, 1, 3, 4, 1) .* reshape(E2, 1, 1, 4, 2)
+end
+
+@testset "parentheses change grouping" begin
+    A, B, C = rand(2, 3), rand(3, 4), rand(4, 5)
+    ref = reshape(A, 2, 3, 1, 1) .* reshape(B, 1, 3, 4, 1) .* reshape(C, 1, 1, 4, 5)
+
+    # A ⊙ (B ⊙ C), matching the unparenthesized (A ⊙ B) ⊙ C numerically
+    @hadamard D[i, j, k, l] := A[i, j] * (B[j, k] * C[k, l])
+    @test D ≈ ref
+
+    # scalar factor inside parentheses is equivalent to a global factor
+    @hadamard D2[i, j, k, l] := A[i, j] * (2 * B[j, k] * C[k, l])
+    @test D2 ≈ 2 * ref
+    @hadamard D3[i, j, k, l] := 2 * (A[i, j] * B[j, k]) * C[k, l]
+    @test D3 ≈ 2 * ref
+
+    # nested parentheses with four tensors
+    C2, Dd = rand(4, 5), rand(5, 2)
+    @hadamard K[i, j, k, l, m] := A[i, j] * (B[j, k] * (C2[k, l] * Dd[l, m]))
+    refk = reshape(A, 2, 3, 1, 1, 1) .* reshape(B, 1, 3, 4, 1, 1) .*
+        reshape(C2, 1, 1, 4, 5, 1) .* reshape(Dd, 1, 1, 1, 5, 2)
+    @test K ≈ refk
+
+    # a parenthesized group sharing an index with an outer tensor
+    A2, B2, C3 = rand(2, 3), rand(3, 4), rand(3, 5)
+    @hadamard M1[i, j, k, l] := A2[i, j] * (B2[j, k] * C3[j, l])
+    refm = reshape(A2, 2, 3, 1, 1) .* reshape(B2, 1, 3, 4, 1) .* reshape(C3, 1, 3, 1, 5)
+    @test M1 ≈ refm
+    @hadamard M2[i, k, j, l] := A2[i, j] * (B2[j, k] * C3[j, l])
+    @test M2 ≈ permutedims(refm, (1, 3, 2, 4))
+
+    # assignment and accumulation with parentheses
+    M3 = zeros(2, 3, 4, 5)
+    @hadamard M3[i, j, k, l] = A[i, j] * (B[j, k] * C[k, l])
+    @test M3 ≈ ref
+    @hadamard M3[i, j, k, l] += A[i, j] * (B[j, k] * C[k, l])
+    @test M3 ≈ 2 * ref
+end
+
 @testset "errors" begin
     # non-matching shared dimensions (runtime dimension check)
     A, B = rand(2, 3), rand(4, 4)

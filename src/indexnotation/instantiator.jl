@@ -29,15 +29,27 @@ end
 instantiate_scalartype(α::Number) = typeof(α)
 instantiate_scalartype(α) = Expr(:call, :scalartype, α)
 
-# scalar type expression of a product term `α * T1 * T2`
-function instantiate_term_scalartype(α, A_term::TensorTerm, B_term::TensorTerm)
-    return Expr(
+# scalar type expression of a product term `α * T1 * T2 * ...`
+function instantiate_term_scalartype(α, tree)
+    sts = term_scalartypes(tree)
+    st = Expr(
         :call, :promote_hadamard,
-        Expr(:call, :scalartype, A_term.object),
-        Expr(:call, :scalartype, B_term.object),
+        Expr(:call, :scalartype, sts[1].object),
+        Expr(:call, :scalartype, sts[2].object),
         instantiate_scalartype(α)
     )
+    for t in sts[3:end]
+        st = Expr(
+            :call, :promote_hadamard,
+            st, Expr(:call, :scalartype, t.object), instantiate_scalartype(α)
+        )
+    end
+    return st
 end
+
+# collect all `TensorTerm` leaves of a product tree, in depth-first order
+term_scalartypes(t::TensorTerm) = [t]
+term_scalartypes(t::ProdNode) = vcat(term_scalartypes(t.left), term_scalartypes(t.right))
 
 # bind a non-literal scalar factor to a gensym to avoid evaluating it twice
 function bindscalar(out::Expr, α)
@@ -50,18 +62,47 @@ function bindscalar(out::Expr, α)
     end
 end
 
-# generate a single `hadamardproduct!` call for a product term
-function instantiate_hadamard(out::Expr, dst, β, α, A_term::TensorTerm, B_term::TensorTerm, lhs_indices)
-    pA, pB, pAB = hadamard_indices(A_term.indices, B_term.indices, lhs_indices)
-    push!(
-        out.args,
-        :(
-            hadamardproduct!(
-                $dst, $(A_term.object), $pA, $(A_term.conj),
-                $(B_term.object), $pB, $(B_term.conj), $pAB, $α, $β
-            )
-        )
+# a sub-product is a plain product of two tensor terms, requiring no intermediate storage
+isleafpair(t::ProdNode) = t.left isa TensorTerm && t.right isa TensorTerm
+
+# generate the `hadamardproduct!` calls computing a sub-tree of a product tree into a fresh
+# temporary with the natural index order; return the expression, its indices and conj flag
+function instantiate_subtree(out::Expr, node, TCsym)
+    if node isa TensorTerm
+        return node.object, node.indices, node.conj
+    end
+    l_expr, l_indices, l_conj = instantiate_subtree(out, node.left, TCsym)
+    r_expr, r_indices, r_conj = instantiate_subtree(out, node.right, TCsym)
+    tmp_indices = unique(vcat(l_indices, r_indices))
+    pA, pB, pAB = hadamard_indices(l_indices, r_indices, tmp_indices)
+    tmp = gensym("tmp")
+    push!(out.args, :($tmp = tensoralloc_hadamard($TCsym, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB)))
+    push!(out.args, :(hadamardproduct!($tmp, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB, 1, 0)))
+    return tmp, tmp_indices, false
+end
+
+# generate `hadamardproduct!` calls for a product term `α * T1 * T2 * ...`, computing
+# `α * (T1 ⊙ T2) ⊙ ...` following the structure of the product tree `tree` (parentheses are
+# preserved as intermediate results) into `dst`, accumulating with `β`. If `alloc_dst` is
+# true, `dst` is allocated before the final step. Intermediate results are allocated with
+# the promoted scalar type `TC` (or one computed from the term if `TC === nothing`).
+function instantiate_hadamard(
+        out::Expr, dst, β, α, tree, lhs_indices, alloc_dst::Bool, TC = nothing
     )
+    if TC === nothing && (alloc_dst || !isleafpair(tree))
+        TCsym = gensym("TC")
+        push!(out.args, Expr(:(=), TCsym, instantiate_term_scalartype(α, tree)))
+    else
+        TCsym = TC
+    end
+
+    l_expr, l_indices, l_conj = instantiate_subtree(out, tree.left, TCsym)
+    r_expr, r_indices, r_conj = instantiate_subtree(out, tree.right, TCsym)
+    pA, pB, pAB = hadamard_indices(l_indices, r_indices, lhs_indices)
+    if alloc_dst
+        push!(out.args, :($dst = tensoralloc_hadamard($TCsym, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB)))
+    end
+    push!(out.args, :(hadamardproduct!($dst, $l_expr, $pA, $l_conj, $r_expr, $pB, $r_conj, $pAB, $α, $β)))
     return nothing
 end
 
@@ -106,36 +147,24 @@ function parse_hadamard(ex)
         # decompose all terms and bind their scalar factors
         bound = []
         for (sign, term) in terms
-            α, t1, t2 = decompose_term(term)
+            α, tensors = decompose_term(term)
             αs = bindscalar(out, applysign(α, sign))
-            push!(bound, (αs, t1, t2))
+            push!(bound, (αs, tensors))
         end
         # scalar type of the full right hand side, promoted over all terms
-        TC = Expr(:call, :promote_type, [instantiate_term_scalartype(αs, t1, t2) for (αs, t1, t2) in bound]...)
+        TC = Expr(:call, :promote_type, [instantiate_term_scalartype(αs, tensors) for (αs, tensors) in bound]...)
         TCsym = gensym("TC")
         push!(out.args, Expr(:(=), TCsym, TC))
         # allocate the output using the first term, then accumulate all terms
-        for (k, (αs, t1, t2)) in enumerate(bound)
-            if k == 1
-                pA, pB, pAB = hadamard_indices(t1.indices, t2.indices, lhs_indices)
-                push!(
-                    out.args,
-                    :($dst = tensoralloc_hadamard($TCsym, $(t1.object), $pA, $(t1.conj), $(t2.object), $pB, $(t2.conj), $pAB))
-                )
-                push!(
-                    out.args,
-                    :($dst = hadamardproduct!($dst, $(t1.object), $pA, $(t1.conj), $(t2.object), $pB, $(t2.conj), $pAB, $αs, 0))
-                )
-            else
-                instantiate_hadamard(out, dst, 1, αs, t1, t2, lhs_indices)
-            end
+        for (k, (αs, tensors)) in enumerate(bound)
+            instantiate_hadamard(out, dst, k == 1 ? 0 : 1, αs, tensors, lhs_indices, k == 1, TCsym)
         end
     else
         β0 = mode == :assignment ? 0 : 1
         for (k, (sign, term)) in enumerate(terms)
-            α, t1, t2 = decompose_term(term)
+            α, tensors = decompose_term(term)
             αs = bindscalar(out, applysign(α, sign))
-            instantiate_hadamard(out, dst, k == 1 ? β0 : 1, αs, t1, t2, lhs_indices)
+            instantiate_hadamard(out, dst, k == 1 ? β0 : 1, αs, tensors, lhs_indices, false)
         end
     end
     return addhadamardfunctions(out)

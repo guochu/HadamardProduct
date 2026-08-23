@@ -57,21 +57,45 @@ function sum_terms(ex)
     end
 end
 
-# decompose a term `scalar * T1 * T2` into the scalar factor and the two tensor terms
+# node of a product tree: the Hadamard product of two sub-products, where a sub-product is
+# either a `TensorTerm` (leaf) or another `ProdNode`. Parentheses in the source expression
+# are preserved as the shape of the tree.
+struct ProdNode
+    left::Any # TensorTerm or ProdNode
+    right::Any # TensorTerm or ProdNode
+end
+
+# multiply two scalar factor expressions into a single expression
+mulscalar(a::Number, b::Number) = a * b
+mulscalar(a, b) = Expr(:call, :*, a, b)
+
+# combine a vector of product elements (tensor terms or sub-products) into a left-associative
+# product tree
+function combine_product(elements)
+    length(elements) >= 2 ||
+        throw(ArgumentError("expected a product of at least two tensor terms"))
+    return foldl((l, r) -> ProdNode(l, r), elements)
+end
+
+# decompose a term `scalar * T1 * T2 * ...` into the scalar factor and a product tree; a
+# parenthesized sub-expression like `(T2 * T3)` is kept as a nested `ProdNode`
 function decompose_term(ex)
     factors = (isexpr(ex, :call) && ex.args[1] == :*) ? ex.args[2:end] : [ex]
     α = 1
-    tensors = TensorTerm[]
+    elements = Any[]
     for f in factors
         if istensorterm(f)
-            push!(tensors, parse_tensorterm(f))
+            push!(elements, parse_tensorterm(f))
+        elseif isexpr(f, :call) && f.args[1] == :* && length(f.args) >= 3
+            # parenthesized sub-product: `(T2 * T3)` parses as a nested `*` call
+            αi, tree = decompose_term(f)
+            push!(elements, tree)
+            α = α == 1 ? αi : mulscalar(α, αi)
         else
-            α = α == 1 ? f : Expr(:call, :*, α, f)
+            α = α == 1 ? f : mulscalar(α, f)
         end
     end
-    length(tensors) == 2 ||
-        throw(ArgumentError("expected a product of exactly two tensor terms, got: $ex"))
-    return α, tensors[1], tensors[2]
+    return α, combine_product(elements)
 end
 
 # apply a sign (±1) to a scalar factor

@@ -7,10 +7,11 @@
     @hadamard [C[i,j,k] =]  A[i,j] * B[j,k]
     @hadamard [C[i,j,k] +=] A[i,j] * B[j,k]
 
-Compute the Hadamard product of two tensors `A` and `B` using index notation: indices that
-appear in both tensors are combined in a pointwise (Hadamard) fashion and are kept in the
-output, while indices that appear in only one of the two tensors are combined as an outer
-product.
+Compute the Hadamard product of two or more tensors using index notation: indices that
+appear in multiple tensors are combined in a pointwise (Hadamard) fashion and are kept in
+the output, while indices that appear in only one tensor are combined as an outer product.
+A product of more than two tensors is combined in a left-associative chain of pairwise
+Hadamard products, i.e. `A * B * C` is computed as `(A ⊙ B) ⊙ C`.
 
 - `C[i,j,k] := A[i,j] * B[j,k]` allocates a new tensor `C` whose indices are `i, j, k`,
 - `C[i,j,k] = A[i,j] * B[j,k]` writes into the existing tensor `C`,
