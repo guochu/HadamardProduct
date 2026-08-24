@@ -12,15 +12,16 @@ istensorterm(ex) = isexpr(ex, [:ref, :typed_vcat]) ||
     TensorTerm
 
 A parsed tensor term `A[i1,...,in]` or `conj(A[i1,...,in])`. The indices may be separated
-by a semicolon into a left (domain) group `left` and a right (codomain) group `right`,
-which is useful for tensor types that distinguish between the two; for regular arrays the
-semicolon has no effect and `indices == vcat(left, right)` is the full index sequence.
+by a semicolon into a left (codomain) group `left` and a right (domain) group `right`,
+following the convention of `@tensor` in TensorOperations.jl and TensorKit.jl, which is
+useful for tensor types that distinguish between the two; for regular arrays the semicolon
+has no effect and `indices == vcat(left, right)` is the full index sequence.
 """
 struct TensorTerm
     object::Any # the tensor object expression (e.g. `A`)
     indices::Vector{Any} # all index labels, in order (left followed by right)
-    left::Vector{Any} # the index labels before a semicolon (domain)
-    right::Vector{Any} # the index labels after a semicolon (codomain)
+    left::Vector{Any} # the index labels before a semicolon (codomain)
+    right::Vector{Any} # the index labels after a semicolon (domain)
     conj::Bool # whether the tensor is conjugated
 end
 
@@ -33,8 +34,10 @@ function _checklabels(labels)
 end
 
 # decompose a tensor expression `A[i,j]`, `A[i j]`, `A[i,j;k]`, `A[i;j]`, `A[();j k]` or
-# `A[(); (j,k)]` into the tensor object and the left (domain) and right (codomain) index
-# groups; a missing semicolon results in an empty right group
+# `A[(); (j,k)]` into the tensor object and the left (codomain) and right (domain) index
+# groups, following the `@tensor` convention of TensorOperations.jl and TensorKit.jl
+# (indices before the semicolon are codomain, indices after the semicolon are domain); a
+# missing semicolon results in an empty right group
 function decompose_tensorterm(ex)
     if isexpr(ex, [:ref, :typed_hcat])
         if length(ex.args) == 1

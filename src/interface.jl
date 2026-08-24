@@ -136,9 +136,10 @@ tensorfree!(C) = nothing
 
 Allocate a tensor `C` of scalar type `TC` that would be the result of
 `hadamardproduct!(C, A, pA, conjA, B, pB, conjB, pAB)`. The optional argument `pC` is an
-`Index2Tuple` grouping the indices of `C` into a left (domain) and a right (codomain)
-part, as specified by a semicolon on the left hand side of `@hadamard`; it can be used by
-tensor types that distinguish the two groups and is ignored for plain `AbstractArray`s.
+`Index2Tuple` grouping the indices of `C` into a left (codomain) and a right (domain)
+part, following the convention of `@tensor` in TensorOperations.jl and TensorKit.jl, as
+specified by a semicolon on the left hand side of `@hadamard`; it can be used by tensor
+types that distinguish the two groups and is ignored for plain `AbstractArray`s.
 """
 function tensoralloc_hadamard(TC, A, pA::Index2Tuple, conjA::Bool, B, pB::Index2Tuple, conjB::Bool, pAB::Index2Tuple, pC::Index2Tuple)
     ttype = hadamardproduct_type(TC, A, pA, conjA, B, pB, conjB, pAB, pC)

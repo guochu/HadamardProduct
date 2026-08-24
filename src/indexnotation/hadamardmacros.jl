@@ -22,6 +22,14 @@ any order, i.e. the output indices are permuted accordingly. Tensors can be conj
 `conj(A[i,j])`, multiplied by a scalar factor (e.g. `2 * A[i,j] * B[j,k]` or
 `c * A[i,j] * B[j,k]`), and products can be combined in linear combinations.
 
+Following the convention of `@tensor` in TensorOperations.jl and TensorKit.jl, the indices
+of a tensor can be split into a left (codomain) and a right (domain) group using a
+semicolon, e.g. `A[i; j]` or `C[i; j k]`. For regular arrays this split has no effect on
+the computation. For tensor-map-like types, a semicolon on the left hand side of a
+definition (`:=`) determines the codomain/domain structure of the newly created output,
+while for existing tensors the semicolon is ignored and the actual structure of the object
+is authoritative.
+
 The macro lowers to calls of the function based API, in particular [`hadamardproduct!`](@ref),
 and works with any tensor type that implements the internal tensor interfaces
 ([`scalartype`](@ref), [`tensoralloc`](@ref), [`hadamardproduct!`](@ref), ...).

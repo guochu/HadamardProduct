@@ -37,7 +37,7 @@ function HadamardProduct.tensorfree!(t::TaggedTensor)
     push!(tagfree_log, 1)
     return nothing
 end
-# the extended 9-argument version of `hadamardproduct_type` records the domain/codomain
+# the extended 9-argument version of `hadamardproduct_type` records the codomain/domain
 # grouping `pC` forwarded by `tensoralloc_hadamard` when the left hand side of `@hadamard`
 # uses a semicolon
 function HadamardProduct.hadamardproduct_type(

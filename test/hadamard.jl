@@ -220,8 +220,9 @@ end
     @hadamard C2[i, j, k] := A[i; j] * B[j; k]
     @test C2 ≈ ref
 
-    # semicolon on the left hand side groups the output indices into a domain and a
-    # codomain part; the index order (and hence the result) is unchanged
+    # semicolon on the left hand side groups the output indices into a codomain (before
+    # the semicolon) and a domain (after the semicolon) part, following the convention of
+    # TensorOperations and TensorKit; the index order (and hence the result) is unchanged
     @hadamard C3[i; j k] := A[i, j] * B[j, k]
     @test C3 ≈ ref
     @hadamard C4[i, j; k] := A[i, j] * B[j, k]

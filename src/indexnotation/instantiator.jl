@@ -87,7 +87,8 @@ end
 # true, `dst` is allocated before the final step. Intermediate results are allocated with
 # the promoted scalar type `TC` (or one computed from the term if `TC === nothing`). If the
 # left hand side groups its indices with a semicolon, `pC` is the `Index2Tuple` of the
-# positions of the left (domain) and right (codomain) indices of `dst`, and is forwarded to
+# positions of the left (codomain) and right (domain) indices of `dst` (following the
+# `@tensor` convention of TensorOperations.jl and TensorKit.jl), and is forwarded to
 # `tensoralloc_hadamard`.
 function instantiate_hadamard(
         out::Expr, dst, β, α, tree, lhs_indices, alloc_dst::Bool, TC = nothing, pC = nothing
@@ -142,9 +143,9 @@ function parse_hadamard(ex)
     _checklabels(lhs_indices)
     allunique(lhs_indices) ||
         throw(IndexError("left hand side indices should be unique: $lhs"))
-    # group the output indices into the left (domain) and right (codomain) part, if the
-    # left hand side uses a semicolon; forwarded to `tensoralloc_hadamard` for tensor types
-    # that distinguish the two groups
+    # group the output indices into the left (codomain) and right (domain) part, following
+    # the `@tensor` convention of TensorOperations.jl and TensorKit.jl; forwarded to
+    # `tensoralloc_hadamard` for tensor types that distinguish the two groups
     pC = isempty(lhs_right) ? nothing : (
         Tuple(_findpos(l, lhs_indices) for l in lhs_left),
         Tuple(_findpos(l, lhs_indices) for l in lhs_right),
